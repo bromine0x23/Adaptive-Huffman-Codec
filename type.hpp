@@ -3,13 +3,13 @@
 
 #if __cplusplus < 201103L
 
-typedef char               SInt8;
-typedef short              SInt16;
-typedef int                SInt32;
-typedef long long          SInt64;
+typedef signed char        SInt8;
+typedef signed short       SInt16;
+typedef signed long        SInt32;
+typedef signed long long   SInt64;
 typedef unsigned char      UInt8;
 typedef unsigned short     UInt16;
-typedef unsigned int       UInt32;
+typedef unsigned long      UInt32;
 typedef unsigned long long UInt64;
 
 #else
@@ -27,6 +27,64 @@ typedef uint32_t UInt32;
 typedef uint64_t UInt64;
 
 #endif
+
+#include <cstddef>
+#include <climits>
+
+typedef char Byte;
+typedef char Char;
+typedef UInt64 Size;
+
+static int const BIT_PER_BYTE = CHAR_BIT;
+static int const BIT_PER_CHAR = CHAR_BIT;
+
+template<typename type, type val>
+struct IntegralConstant {
+	static type const value = val;
+	typedef type Value;
+	typedef IntegralConstant<Value, value> Type;
+	operator Value() { return value; }
+};
+
+typedef IntegralConstant<bool, true> True;
+typedef IntegralConstant<bool, false> False;
+
+template<typename>
+struct IsSigned : False {};
+
+template<> struct IsSigned<signed char>      : True {};
+template<> struct IsSigned<signed short>     : True {};
+template<> struct IsSigned<signed int>       : True {};
+template<> struct IsSigned<signed long>      : True {};
+template<> struct IsSigned<signed long long> : True {};
+template<> struct IsSigned<unsigned char>      : False {};
+template<> struct IsSigned<unsigned short>     : False {};
+template<> struct IsSigned<unsigned int>       : False {};
+template<> struct IsSigned<unsigned long>      : False {};
+template<> struct IsSigned<unsigned long long> : False {};
+
+template<typename>
+struct IsUnsigned : False {};
+
+template<> struct IsUnsigned<signed char>      : False {};
+template<> struct IsUnsigned<signed short>     : False {};
+template<> struct IsUnsigned<signed int>       : False {};
+template<> struct IsUnsigned<signed long>      : False {};
+template<> struct IsUnsigned<signed long long> : False {};
+template<> struct IsUnsigned<unsigned char>      : True {};
+template<> struct IsUnsigned<unsigned short>     : True {};
+template<> struct IsUnsigned<unsigned int>       : True {};
+template<> struct IsUnsigned<unsigned long>      : True {};
+template<> struct IsUnsigned<unsigned long long> : True {};
+
+template<typename>
+struct IsArray : public False {};
+
+template<typename type, Size size>
+struct IsArray<type[size]> : public True {};
+
+template<typename type>
+struct IsArray<type[]> : public True {};
 
 #include <string>
 #include <ios>
@@ -78,14 +136,10 @@ struct Container {
 	typedef std::multiset<Value> MultiSet;
 };
 
-#include <climits>
-
-static int const BIT_PER_CHAR = CHAR_BIT;
-
 template<typename type>
 struct BitwidthOf {
 	typedef type Type;
-	enum { value = sizeof(Type) * BIT_PER_CHAR };
+	enum { value = sizeof(Type) * CHAR_BIT };
 };
 
 #endif // __TYPE_HPP__

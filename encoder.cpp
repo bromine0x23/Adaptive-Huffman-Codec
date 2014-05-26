@@ -1,4 +1,4 @@
-#include "adaptive_huffman.cpp"
+#include "adaptive_huffman_codec.hpp"
 
 #include <iostream>
 
@@ -14,7 +14,7 @@ int main(int argc, char** argv) {
 		return -1;
 	}
 
-	AdaptiveHuffmanCodec<>::encode_to(argv[1], argv[2]);
+	AdaptiveHuffmanCodec<char>::encode(argv[1], argv[2]);
 
 	return 0;
 }
