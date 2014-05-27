@@ -15,8 +15,8 @@ private:
 public:
 	using Symbol = symbol_type;
 
-	using ICharStream = typename IO<Char>::IStream;
-	using OCharStream = typename IO<Char>::OStream;
+	using IByteStream = typename IO<Byte>::IStream;
+	using OByteStream = typename IO<Byte>::OStream;
 
 	using ISymbolStream = typename IO<Symbol>::IStream;
 	using OSymbolStream = typename IO<Symbol>::OStream;
@@ -38,7 +38,10 @@ public:
 	using Base = CodecBase<Symbol>;
 
 	using ISymbolStream = typename Base::ISymbolStream;
-	using OCharStream   = typename Base::OCharStream;
+	using OByteStream   = typename Base::OByteStream;
+
+	using IStream = ISymbolStream;
+	using OStream = OByteStream;
 
 
 	using Base::SYMBOL_BITWIDTH;
@@ -48,13 +51,13 @@ public:
 	using Base::BUFFER_BITWIDTH;
 
 protected:
-	OCharStream & ostream;
-	Char buffer[BUFFER_SIZE];
+	OStream & ostream;
+	Byte buffer[BUFFER_SIZE];
 	Size buffer_bit;
 	Size symbol_count;
 
 public:
-	Encoder(OCharStream & os) : ostream(os), symbol_count(0) {
+	Encoder(OStream & os) : ostream(os), symbol_count(0) {
 		clear_buffer();
 	}
 
@@ -78,7 +81,6 @@ public:
 	}
 
 protected:
-
 	void clear_buffer() {
 		std::uninitialized_fill_n(buffer, BUFFER_SIZE, 0);
 		buffer_bit = 0;
@@ -90,7 +92,7 @@ protected:
 	}
 
 	void put_count() {
-		ostream.write((Char *)(&symbol_count), sizeof(symbol_count));
+		ostream.write(reinterpret_cast<Byte *>(&symbol_count), sizeof(symbol_count));
 	}
 
 	void put_plain(Symbol symbol) {
@@ -122,8 +124,11 @@ public:
 	using Symbol = symbol_type;
 	using Base = CodecBase<Symbol>;
 
-	using ICharStream   = typename Base::ICharStream;
+	using IByteStream = typename Base::IByteStream;
 	using OSymbolStream = typename Base::OSymbolStream;
+
+	using IStream = IByteStream;
+	using OStream = OSymbolStream;
 
 	using Base::SYMBOL_BITWIDTH;
 	using Base::SYMBOL_NUM;
@@ -132,14 +137,14 @@ public:
 	using Base::BUFFER_BITWIDTH;
 
 protected:
-	ICharStream & istream;
-	Char buffer[BUFFER_SIZE];
+	IStream & istream;
+	Byte buffer[BUFFER_SIZE];
 	Size buffer_bit;
 	Size buffer_used;
 	Size symbol_count;
 
 public:
-	Decoder(ICharStream & is) : istream(is), buffer_bit(0), buffer_used(0), symbol_count(0) {
+	Decoder(IStream & is) : istream(is), buffer_bit(0), buffer_used(0), symbol_count(0) {
 		get_count();
 	}
 
@@ -159,7 +164,11 @@ public:
 	}
 
 	virtual bool is_good() {
-		return symbol_count>0;
+		return symbol_count > 0;
+	}
+
+	explicit operator bool() const {
+		return is_good();
 	}
 
 protected:
@@ -170,10 +179,9 @@ protected:
 	}
 
 	void get_count() {
-		int const LENGTH = sizeof(symbol_count);
-		typename ICharStream::pos_type pos = istream.tellg();
-		istream.seekg(-LENGTH, std::ios_base::end);
-		istream.read((Char *)(&symbol_count), LENGTH);
+		auto pos = istream.tellg();
+		istream.seekg(neg(sizeof(symbol_count)), std::ios_base::end);
+		istream.read(reinterpret_cast<Byte *>(&symbol_count), sizeof(symbol_count));
 		istream.seekg(pos);
 	}
 
@@ -189,7 +197,7 @@ protected:
 		if (buffer_used >= buffer_bit) {
 			fill_buffer();
 		}
-		Bit bit = bit_at(buffer[buffer_used / BIT_PER_BYTE], BIT_PER_BYTE - 1 - (buffer_used % BIT_PER_BYTE));
+		Bit bit = bit_at(buffer[buffer_used / BIT_PER_BYTE], BIT_PER_BYTE - (buffer_used % BIT_PER_BYTE) - 1);
 		++buffer_used;
 		return bit;
 	}
@@ -206,46 +214,43 @@ private:
 
 public:
 	using Symbol = symbol_type;
-
-	using Base = CodecBase<symbol_type>;
+	using Base = CodecBase<Symbol>;
 	using Encoder = encoder_type;
 	using Decoder = decoder_type;
 
 	using ISymbolStream = typename Encoder::ISymbolStream;
 	using OSymbolStream = typename Decoder::OSymbolStream;
 
-	using ICharStream = typename Decoder::ICharStream;
-	using OCharStream = typename Encoder::OCharStream;
+	using IByteStream = typename Decoder::IByteStream;
+	using OByteStream = typename Encoder::OByteStream;
 
 	using ISymbolFileStream = typename IO<Symbol>::IFileStream;
 	using OSymbolFileStream = typename IO<Symbol>::OFileStream;
 
-	using ICharFileStream = typename IO<Char>::IFileStream;
-	using OCharFileStream = typename IO<Char>::OFileStream;
+	using IByteFileStream = typename IO<Byte>::IFileStream;
+	using OByteFileStream = typename IO<Byte>::OFileStream;
 
-	static void encode(ISymbolStream & istream, OCharStream & ostream) {
+	static void encode(ISymbolStream & istream, OByteStream & ostream) {
 		Encoder encoder(ostream);
-		for (Symbol symbol; istream.read((Char *)(&symbol), sizeof(Symbol)).good();) {
+		for (Symbol symbol; istream.get(symbol).good();) {
 			encoder.put(symbol);
 		}
 	}
 
 	static void encode(char const * input_file, char const * output_file) {
 		ISymbolFileStream fin(input_file, std::ios::binary);
-		OCharFileStream fout(output_file, std::ios::binary);
+		OByteFileStream fout(output_file, std::ios::binary);
 		encode(fin, fout);
 	}
 
-	static void decode(ICharStream & istream, OSymbolStream & ostream) {
-		Decoder decoder(istream);
-		for (Symbol symbol; decoder.is_good();) {
-			symbol = decoder.get();
-			ostream.write((Char *)(&symbol), sizeof(Symbol));
+	static void decode(IByteStream & istream, OSymbolStream & ostream) {
+		for (Decoder decoder(istream); decoder.is_good();) {
+			ostream.put(decoder.get());
 		}
 	}
 
 	static void decode(char const * input_file, char const * output_file) {
-		ICharFileStream fin(input_file, std::ios::binary);
+		IByteFileStream fin(input_file, std::ios::binary);
 		OSymbolFileStream fout(output_file, std::ios::binary);
 		decode(fin, fout);
 	}

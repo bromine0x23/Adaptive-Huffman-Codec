@@ -31,7 +31,7 @@ typedef uint64_t UInt64;
 #include <cstddef>
 #include <climits>
 
-typedef char Byte;
+typedef unsigned char Byte;
 typedef char Char;
 typedef UInt64 Size;
 
@@ -40,7 +40,7 @@ static int const BIT_PER_CHAR = CHAR_BIT;
 
 template<typename type, type val>
 struct IntegralConstant {
-	static type const value = val;
+	enum { value = val };
 	typedef type Value;
 	typedef IntegralConstant<Value, value> Type;
 	operator Value() { return value; }
@@ -76,6 +76,35 @@ template<> struct IsUnsigned<unsigned short>     : True {};
 template<> struct IsUnsigned<unsigned int>       : True {};
 template<> struct IsUnsigned<unsigned long>      : True {};
 template<> struct IsUnsigned<unsigned long long> : True {};
+
+template<typename type>
+struct Signed {
+	using Type = type;
+};
+
+template<> struct Signed<char>               { using Type = signed char;      };
+template<> struct Signed<unsigned char>      { using Type = signed char;      };
+template<> struct Signed<unsigned short>     { using Type = signed short;     };
+template<> struct Signed<unsigned int>       { using Type = signed int;       };
+template<> struct Signed<unsigned long>      { using Type = signed long;      };
+template<> struct Signed<unsigned long long> { using Type = signed long long; };
+
+template<typename type>
+struct Unsigned {
+	using Type = type;
+};
+
+template<> struct Unsigned<char>             { using Type = unsigned char;      };
+template<> struct Unsigned<signed char>      { using Type = unsigned char;      };
+template<> struct Unsigned<signed short>     { using Type = unsigned short;     };
+template<> struct Unsigned<signed int>       { using Type = unsigned int;       };
+template<> struct Unsigned<signed long>      { using Type = unsigned long;      };
+template<> struct Unsigned<signed long long> { using Type = unsigned long long; };
+
+template<typename value_type>
+typename Signed<value_type>::Type neg(value_type value) {
+	return - static_cast<typename Signed<value_type>::Type>(value);
+}
 
 template<typename>
 struct IsArray : public False {};

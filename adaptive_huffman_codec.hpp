@@ -22,6 +22,14 @@ public:
 	using Symbol = symbol_type;
 	using InternalSymbol = UInt64;
 
+	static InternalSymbol to_internal(Symbol symbol) {
+		return static_cast<UInt64>(static_cast<typename Unsigned<Symbol>::Type>(symbol));
+	}
+
+	static Symbol to_external(InternalSymbol symbol) {
+		return static_cast<Symbol>(static_cast<typename Unsigned<Symbol>::Type>(symbol));
+	}
+
 private:
 	struct Node;
 
@@ -34,6 +42,12 @@ private:
 		Linker next, prev; /* doubly-linked list */
 		Linker * block_head; /* highest ranked node in block */
 	};
+
+public:
+	static Size const SYMBOL_BIT = BitwidthOf<Symbol>::value;
+	static Size const SYMBOL_NUM = Size(1) << SYMBOL_BIT;
+	static InternalSymbol const NYT_SYMBOL = SYMBOL_NUM; // id of not yet transmitted
+	static InternalSymbol const INTERNAL_SYMBOL = SYMBOL_NUM + 1; // id of internal node
 
 public:
 	class Cursor {
@@ -108,12 +122,6 @@ public:
 		}
 	};
 
-public:
-	static Size const SYMBOL_BIT = BitwidthOf<Symbol>::value;
-	static Size const SYMBOL_NUM = Size(1) << SYMBOL_BIT;
-	static InternalSymbol const NYT_SYMBOL = SYMBOL_NUM; // id of not yet transmitted
-	static InternalSymbol const INTERNAL_SYMBOL = SYMBOL_NUM + 1; // id of internal node
-
 private:
 	Linker * free_linkers;
 	Node * tree_root;
@@ -129,6 +137,10 @@ public:
 		return Cursor(tree_root);
 	}
 
+	Cursor node(Symbol symbol) const {
+		return node(to_internal(symbol));
+	}
+
 	Cursor node(InternalSymbol symbol) const {
 		return Cursor(location[symbol]);
 	}
@@ -140,7 +152,7 @@ public:
 	Self & operator<<(Symbol symbol);
 
 private:
-	void new_symbol(Symbol symbol);
+	void new_symbol(InternalSymbol symbol);
 
 	// Do the increments
 	void increse_weight(Node * node);
@@ -236,21 +248,19 @@ AdaptiveHuffmanTree<type>::~AdaptiveHuffmanTree() {
 
 template<typename type>
 auto AdaptiveHuffmanTree<type>::operator<<(Symbol symbol) -> Self & {
-	InternalSymbol internal_symbol = static_cast<InternalSymbol>(symbol);
+	InternalSymbol internal_symbol = to_internal(symbol);
 	if (location[internal_symbol] == NULL) {
-		new_symbol(symbol);
+		new_symbol(internal_symbol);
 	}
 	increse_weight(location[internal_symbol]);
 	return *this;
 }
 
 template<typename type>
-void AdaptiveHuffmanTree<type>::new_symbol(Symbol symbol) {
+void AdaptiveHuffmanTree<type>::new_symbol(InternalSymbol symbol) {
 	assert(list_head->symbol == NYT_SYMBOL);
 
-	InternalSymbol internal_symbol = static_cast<InternalSymbol>(symbol);
-
-	Node * symbol_node = get_node(internal_symbol);
+	Node * symbol_node = get_node(symbol);
 	push_head(symbol_node);
 
 	Node * new_nyt_node = get_node(NYT_SYMBOL);
@@ -264,7 +274,7 @@ void AdaptiveHuffmanTree<type>::new_symbol(Symbol symbol) {
 	old_nyt_node->left = new_nyt_node;
 	old_nyt_node->right = symbol_node;
 
-	location[internal_symbol] = symbol_node;
+	location[symbol] = symbol_node;
 	location[NYT_SYMBOL] = new_nyt_node;
 }
 
@@ -431,12 +441,11 @@ public:
 	using Symbol = symbol_type;
 
 	using Base = Encoder<Symbol>;
-	using ISymbolStream = typename Base::ISymbolStream;
-	using OCharStream   = typename Base::OCharStream;
+	using IStream = typename Base::IStream;
+	using OStream = typename Base::OStream;
 
 	using Tree = AdaptiveHuffmanTree<Symbol>;
-	using InternalSymbol = typename Tree::InternalSymbol;
-	using Cursor         =  typename Tree::Cursor;
+	using Cursor = typename Tree::Cursor;
 
 	using Base::BUFFER_SIZE;
 	using Base::BUFFER_BITWIDTH;
@@ -444,14 +453,15 @@ public:
 private:
 	Tree tree;
 
+	using Base::put_plain;
+	using Base::put_bit;
+
 public:
-	AdaptiveHuffmanEncoder(OCharStream & os) : Base(os) {
+	AdaptiveHuffmanEncoder(OStream & os) : Base(os) {
 		// do nothing
 	}
 
 	Self & put(Symbol symbol) {
-		printf("put() -> %d\n", symbol);
-
 		put_symbol(symbol);
 		tree << symbol;
 		++this->symbol_count;
@@ -460,38 +470,31 @@ public:
 
 private:
 	// Send a symbol
-	void put_symbol(Symbol symbol);
-
-	// Encode symbol and send code
-	void encode_and_put(Cursor cursor);
-
-private:
-	AdaptiveHuffmanEncoder(Self const &);
-	Self & operator=(Self const &);
-}; // class AdaptiveHuffmanEncoder
-
-template<typename type>
-void AdaptiveHuffmanEncoder<type>::put_symbol(Symbol symbol) {
-	printf("put_symbol() -> %d\n", symbol);
-	Cursor cursor = tree.node(symbol);
-	if (cursor.is_null()) {
-		// Symbol hasn't been transmitted, send a NYT, then the symbol
-		encode_and_put(tree.nyt());
-		this->put_plain(symbol);
-	} else {
-		encode_and_put(cursor);
-	}
-}
-
-template<typename type>
-void AdaptiveHuffmanEncoder<type>::encode_and_put(Cursor cursor) {
-	if (!cursor.is_null()) {
-		encode_and_put(cursor.parent());
-		if (!cursor.is_root()) {
-			this->put_bit(cursor.side());
+	void put_symbol(Symbol symbol) {
+		Cursor cursor = tree.node(symbol);
+		if (cursor.is_null()) {
+			// Symbol hasn't been transmitted, send a NYT, then the symbol
+			encode_and_put(tree.nyt());
+			put_plain(symbol);
+		} else {
+			encode_and_put(cursor);
 		}
 	}
-}
+
+	// Encode symbol and send code
+	void encode_and_put(Cursor cursor) {
+		if (!cursor.is_null()) {
+			encode_and_put(cursor.parent());
+			if (!cursor.is_root()) {
+				put_bit(cursor.side());
+			}
+		}
+	}
+
+private:
+	AdaptiveHuffmanEncoder(Self const &) = delete;
+	Self & operator=(Self const &) = delete;
+}; // class AdaptiveHuffmanEncoder
 
 template<typename symbol_type = char>
 class AdaptiveHuffmanDecoder : public Decoder<symbol_type> {
@@ -502,8 +505,8 @@ public:
 	using Symbol = symbol_type;
 
 	using Base = Decoder<Symbol>;
-	using ICharStream   = typename Base::ICharStream;
-	using OSymbolStream = typename Base::OSymbolStream;
+	using IStream = typename Base::IStream;
+	using OStream = typename Base::OStream;
 
 	using Tree = AdaptiveHuffmanTree<Symbol>;
 	using InternalSymbol = typename Tree::InternalSymbol;
@@ -515,40 +518,37 @@ public:
 private:
 	Tree tree;
 
+	using Base::get_plain;
+	using Base::get_bit;
+
 public:
-	AdaptiveHuffmanDecoder(ICharStream & is) : Base(is) {
+	AdaptiveHuffmanDecoder(IStream & is) : Base(is) {
 		// do nothing
 	}
 
-	Symbol get();
+	Symbol get() {
+		InternalSymbol internal_symbol = get_symbol();
+		Symbol symbol = (internal_symbol == Tree::NYT_SYMBOL) ? get_plain() : Tree::to_external(internal_symbol);
+		tree << symbol;
+		--this->symbol_count;
+		return symbol;
+	}
 
 private:
 	// Get a symbol
-	InternalSymbol get_symbol();
+	InternalSymbol get_symbol() {
+		Cursor cursor = tree.root();
+		for (; !cursor.is_null() && cursor.symbol() == Tree::INTERNAL_SYMBOL; cursor.down(get_bit())) {}
+		return cursor.symbol();
+	}
 
 private:
-	AdaptiveHuffmanDecoder(Self const &);
-	Self & operator=(Self const &);
+	AdaptiveHuffmanDecoder(Self const &) = delete;
+	Self & operator=(Self const &) = delete;
 }; // class AdaptiveHuffmanDecoder
 
-template<typename type>
-auto AdaptiveHuffmanDecoder<type>::get() -> Symbol {
-	InternalSymbol internal_symbol = get_symbol();
-	Symbol symbol = (internal_symbol == Tree::NYT_SYMBOL) ? this->get_plain() : static_cast<Symbol>(internal_symbol);
-	tree << symbol;
-	--this->symbol_count;
-	return symbol;
-}
-
-template<typename type>
-auto AdaptiveHuffmanDecoder<type>::get_symbol() -> InternalSymbol {
-	Cursor cursor = tree.root();
-	for (; !cursor.is_null() && cursor.symbol() == Tree::INTERNAL_SYMBOL; cursor.down(this->get_bit())) {}
-	return cursor.symbol();
-}
-
 template<typename symbol_type = char>
-class AdaptiveHuffmanCodec : public Codec<symbol_type, AdaptiveHuffmanEncoder<symbol_type>, AdaptiveHuffmanDecoder<symbol_type> > {
+class AdaptiveHuffmanCodec : public Codec<symbol_type, AdaptiveHuffmanEncoder<symbol_type>, AdaptiveHuffmanDecoder<symbol_type>> {
 private:
 	using Self = AdaptiveHuffmanCodec;
 
@@ -559,14 +559,14 @@ public:
 	using Decoder = AdaptiveHuffmanDecoder<Symbol>;
 	using Base = Codec<Symbol, Encoder, Decoder>;
 
-	using ICharStream = typename Base::ICharStream;
-	using OCharStream = typename Base::OCharStream;
+	using IByteStream = typename Base::IByteStream;
+	using OByteStream = typename Base::OByteStream;
 
 	using ISymbolStream = typename Base::ISymbolStream;
 	using OSymbolStream = typename Base::OSymbolStream;
 
-	using ICharFileStream = typename Base::ICharFileStream;
-	using OCharFileStream = typename Base::OCharFileStream;
+	using IByteFileStream = typename Base::IByteFileStream;
+	using OByteFileStream = typename Base::OByteFileStream;
 
 	using ISymbolFileStream = typename Base::ISymbolFileStream;
 	using OSymbolFileStream = typename Base::OSymbolFileStream;
