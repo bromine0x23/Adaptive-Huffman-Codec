@@ -23,9 +23,6 @@ public:
 
 	static Size const SYMBOL_BITWIDTH = BitwidthOf<Symbol>::value;
 	static Size const SYMBOL_NUM = static_cast<Size>(1) << SYMBOL_BITWIDTH;
-
-	static Size const BUFFER_SIZE = 256;
-	static Size const BUFFER_BITWIDTH = BUFFER_SIZE * BIT_PER_CHAR;
 };
 
 template<typename symbol_type>
@@ -35,22 +32,16 @@ private:
 
 public:
 	using Symbol = symbol_type;
+
 	using Base = CodecBase<Symbol>;
 
-	using ISymbolStream = typename Base::ISymbolStream;
-	using OByteStream   = typename Base::OByteStream;
-
-	using IStream = ISymbolStream;
-	using OStream = OByteStream;
-
-
-	using Base::SYMBOL_BITWIDTH;
-	using Base::SYMBOL_NUM;
-
-	using Base::BUFFER_SIZE;
-	using Base::BUFFER_BITWIDTH;
+	using IStream = typename Base::ISymbolStream;
+	using OStream = typename Base::OByteStream;
 
 protected:
+	static Size const BUFFER_SIZE = 256;
+	static Size const BUFFER_BITWIDTH = BUFFER_SIZE * BIT_PER_BYTE;
+
 	OStream & ostream;
 	Byte buffer[BUFFER_SIZE];
 	Size buffer_bit;
@@ -87,7 +78,7 @@ protected:
 	}
 
 	void flush() {
-		ostream.write(buffer, (buffer_bit + SYMBOL_BITWIDTH - 1) / SYMBOL_BITWIDTH);
+		ostream.write(buffer, (buffer_bit + Base::SYMBOL_BITWIDTH - 1) / Base::SYMBOL_BITWIDTH);
 		buffer_bit = 0;
 	}
 
@@ -96,7 +87,7 @@ protected:
 	}
 
 	void put_plain(Symbol symbol) {
-		for (int i = SYMBOL_BITWIDTH - 1; i >= 0; --i) {
+		for (int i = Base::SYMBOL_BITWIDTH - 1; i >= 0; --i) {
 			put_bit(bit_at(symbol, i));
 		}
 	}
@@ -106,7 +97,7 @@ protected:
 			ostream.write(buffer, BUFFER_SIZE);
 			clear_buffer();
 		}
-		set_bit(buffer[buffer_bit / BIT_PER_BYTE], bit, BIT_PER_BYTE - 1 - (buffer_bit % BIT_PER_BYTE));
+		set_bit(buffer[buffer_bit / BIT_PER_BYTE], BIT_PER_BYTE - (buffer_bit % BIT_PER_BYTE) - 1, bit);
 		++buffer_bit;
 	}
 
@@ -122,21 +113,16 @@ private:
 
 public:
 	using Symbol = symbol_type;
+
 	using Base = CodecBase<Symbol>;
 
-	using IByteStream = typename Base::IByteStream;
-	using OSymbolStream = typename Base::OSymbolStream;
-
-	using IStream = IByteStream;
-	using OStream = OSymbolStream;
-
-	using Base::SYMBOL_BITWIDTH;
-	using Base::SYMBOL_NUM;
-
-	using Base::BUFFER_SIZE;
-	using Base::BUFFER_BITWIDTH;
+	using IStream = typename Base::IByteStream;
+	using OStream = typename Base::OSymbolStream;
 
 protected:
+	static Size const BUFFER_SIZE = 256;
+	static Size const BUFFER_BITWIDTH = BUFFER_SIZE * BIT_PER_BYTE;
+
 	IStream & istream;
 	Byte buffer[BUFFER_SIZE];
 	Size buffer_bit;
@@ -187,8 +173,8 @@ protected:
 
 	Symbol get_plain() {
 		Symbol symbol = 0;
-		for (int i = 0; i < SYMBOL_BITWIDTH; ++i) {
-			symbol = push_bit(symbol, get_bit());
+		for (int i = 0; i < Base::SYMBOL_BITWIDTH; ++i) {
+			symbol = symbol << get_bit();
 		}
 		return symbol;
 	}
@@ -207,22 +193,18 @@ private:
 	Self & operator=(Self const &) = delete;
 };
 
-template<typename symbol_type, typename encoder_type = Encoder<symbol_type>, typename decoder_type = Decoder<symbol_type>>
+template<typename symbol_type = Byte, typename encoder_type = Encoder<symbol_type>, typename decoder_type = Decoder<symbol_type>>
 class Codec : public CodecBase<symbol_type> {
 private:
 	using Self = Codec;
 
 public:
 	using Symbol = symbol_type;
+
 	using Base = CodecBase<Symbol>;
+
 	using Encoder = encoder_type;
 	using Decoder = decoder_type;
-
-	using ISymbolStream = typename Encoder::ISymbolStream;
-	using OSymbolStream = typename Decoder::OSymbolStream;
-
-	using IByteStream = typename Decoder::IByteStream;
-	using OByteStream = typename Encoder::OByteStream;
 
 	using ISymbolFileStream = typename IO<Symbol>::IFileStream;
 	using OSymbolFileStream = typename IO<Symbol>::OFileStream;
@@ -230,7 +212,7 @@ public:
 	using IByteFileStream = typename IO<Byte>::IFileStream;
 	using OByteFileStream = typename IO<Byte>::OFileStream;
 
-	static void encode(ISymbolStream & istream, OByteStream & ostream) {
+	static void encode(typename Encoder::IStream & istream, typename Encoder::OStream & ostream) {
 		Encoder encoder(ostream);
 		for (Symbol symbol; istream.get(symbol).good();) {
 			encoder.put(symbol);
@@ -243,7 +225,7 @@ public:
 		encode(fin, fout);
 	}
 
-	static void decode(IByteStream & istream, OSymbolStream & ostream) {
+	static void decode(typename Decoder::IStream & istream, typename Decoder::OStream & ostream) {
 		for (Decoder decoder(istream); decoder.is_good();) {
 			ostream.put(decoder.get());
 		}
