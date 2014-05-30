@@ -44,12 +44,6 @@ private:
 	};
 
 public:
-	static Size const SYMBOL_BIT = BitwidthOf<Symbol>::value;
-	static Size const SYMBOL_NUM = 1ULL << SYMBOL_BIT;
-	static InternalSymbol const NYT_SYMBOL = SYMBOL_NUM; // id of not yet transmitted
-	static InternalSymbol const INTERNAL = SYMBOL_NUM + 1; // id of internal node
-
-public:
 	class Cursor {
 	private:
 		using Self = Cursor;
@@ -120,7 +114,13 @@ public:
 		Self & down(Bit bit) {
 			return bit == Bit::zero ? down_left() : down_right();
 		}
-	};
+	}; // class Cursor
+
+public:
+	static Size const SYMBOL_BIT = BitSize<Symbol>::value;
+	static Size const SYMBOL_NUM = 1ULL << SYMBOL_BIT;
+	static InternalSymbol const NYT_SYMBOL = SYMBOL_NUM; // id of not yet transmitted
+	static InternalSymbol const INTERNAL = SYMBOL_NUM + 1; // id of internal node
 
 private:
 	Linker * free_linkers;

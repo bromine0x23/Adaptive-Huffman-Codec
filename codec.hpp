@@ -15,14 +15,8 @@ private:
 public:
 	using Symbol = symbol_type;
 
-	using IByteStream = typename IO<Byte>::IStream;
-	using OByteStream = typename IO<Byte>::OStream;
-
-	using ISymbolStream = typename IO<Symbol>::IStream;
-	using OSymbolStream = typename IO<Symbol>::OStream;
-
-	static Size const SYMBOL_BITWIDTH = BitwidthOf<Symbol>::value;
-	static Size const SYMBOL_NUM = static_cast<Size>(1) << SYMBOL_BITWIDTH;
+	static Size const SYMBOL_BIT = BitSize<Symbol>::value;
+	static Size const SYMBOL_NUM = static_cast<Size>(1) << SYMBOL_BIT;
 };
 
 template<typename symbol_type>
@@ -35,12 +29,12 @@ public:
 
 	using Base = CodecBase<Symbol>;
 
-	using IStream = typename Base::ISymbolStream;
-	using OStream = typename Base::OByteStream;
+	using IStream = typename IO<Symbol>::IStream;
+	using OStream = typename IO<Byte>::OStream;
 
 protected:
 	static Size const BUFFER_SIZE = 256;
-	static Size const BUFFER_BITWIDTH = BUFFER_SIZE * BIT_PER_BYTE;
+	static Size const BUFFER_BIT = BUFFER_SIZE * BitSize<Byte>::value;
 
 	OStream & ostream;
 	Byte buffer[BUFFER_SIZE];
@@ -73,12 +67,12 @@ public:
 
 protected:
 	void clear_buffer() {
-		std::uninitialized_fill_n(buffer, BUFFER_SIZE, 0);
+		std::uninitialized_fill(buffer, buffer + BUFFER_SIZE, static_cast<Byte>(0));
 		buffer_bit = 0;
 	}
 
 	void flush() {
-		ostream.write(buffer, (buffer_bit + Base::SYMBOL_BITWIDTH - 1) / Base::SYMBOL_BITWIDTH);
+		ostream.write(buffer, (buffer_bit + BitSize<Byte>::value - 1) / BitSize<Byte>::value);
 		buffer_bit = 0;
 	}
 
@@ -87,18 +81,17 @@ protected:
 	}
 
 	void put_plain(Symbol symbol) {
-		for (int i = Base::SYMBOL_BITWIDTH - 1; i >= 0; --i) {
-			put_bit(bit_at(symbol, i));
+		for (int i = 0; i < Base::SYMBOL_BIT; ++i) {
+			put_bit(get_bit(symbol, i));
 		}
 	}
 
 	void put_bit(Bit bit) {
-		if (buffer_bit == BUFFER_BITWIDTH) {
+		set_bit(buffer, buffer_bit++, bit);
+		if (buffer_bit == BUFFER_BIT) {
 			ostream.write(buffer, BUFFER_SIZE);
 			clear_buffer();
 		}
-		set_bit(buffer[buffer_bit / BIT_PER_BYTE], BIT_PER_BYTE - (buffer_bit % BIT_PER_BYTE) - 1, bit);
-		++buffer_bit;
 	}
 
 private:
@@ -116,8 +109,8 @@ public:
 
 	using Base = CodecBase<Symbol>;
 
-	using IStream = typename Base::IByteStream;
-	using OStream = typename Base::OSymbolStream;
+	using IStream = typename IO<Byte>::IStream;
+	using OStream = typename IO<Symbol>::OStream;
 
 protected:
 	static Size const BUFFER_SIZE = 256;
@@ -166,15 +159,15 @@ protected:
 
 	void get_count() {
 		auto pos = istream.tellg();
-		istream.seekg(neg(sizeof(symbol_count)), std::ios_base::end);
-		istream.read(reinterpret_cast<Byte *>(&symbol_count), sizeof(symbol_count));
+		istream.seekg(-ByteSize<Size>::value, std::ios_base::end);
+		istream.read(reinterpret_cast<Byte *>(&symbol_count), ByteSize<Size>::value);
 		istream.seekg(pos);
 	}
 
 	Symbol get_plain() {
 		Symbol symbol = 0;
-		for (int i = 0; i < Base::SYMBOL_BITWIDTH; ++i) {
-			symbol = symbol << get_bit();
+		for (int i = 0; i < Base::SYMBOL_BIT; ++i) {
+			set_bit(symbol, i, get_bit());
 		}
 		return symbol;
 	}
@@ -183,9 +176,7 @@ protected:
 		if (buffer_used >= buffer_bit) {
 			fill_buffer();
 		}
-		Bit bit = bit_at(buffer[buffer_used / BIT_PER_BYTE], BIT_PER_BYTE - (buffer_used % BIT_PER_BYTE) - 1);
-		++buffer_used;
-		return bit;
+		return ::get_bit(buffer, buffer_used++);
 	}
 
 private:
